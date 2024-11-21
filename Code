@@ -1,0 +1,166 @@
+#define BOT_TOKEN " "
+#define CHAT_ID " "
+
+#define BLYNK_TEMPLATE_ID " "
+#define BLYNK_TEMPLATE_NAME " "
+#define BLYNK_AUTH_TOKEN " "
+
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
+#include <BlynkSimpleEsp32.h>
+#include <DHT.h>
+
+#define DHTPIN 15 
+#define DHTTYPE DHT11   
+
+#define IR_PIN 18
+#define IR_POWER_PIN 21 // Choose any available digital pin
+#define BUZZER_PIN 4   // Choose any available digital pin for the buzzer
+#define GROUND_PIN 2   // Choose any available ground pin on the ESP32 for connecting both IR module and buzzer
+#define EXTRA_GROUND_PIN 19 // Pin D21 used as an additional ground pin
+
+WiFiClientSecure secured_client;
+UniversalTelegramBot bot(BOT_TOKEN, secured_client);
+DHT dht(DHTPIN, DHTTYPE);
+BlynkTimer timer;
+const unsigned long BOT_MTBS = 1000; // mean time between scan messages
+unsigned long bot_lasttime; // last time messages' scan has been done
+float temperatureC;
+float temperatureF;
+float humidity;
+
+char auth[] = BLYNK_AUTH_TOKEN;
+char ssid[] = " ";  
+char pass[] = " "; 
+
+void sendSensor() {
+  float h = dht.readHumidity();
+  float t = dht.readTemperature(); 
+
+  if (isnan(h) || isnan(t)) {
+    Serial.println("Failed to read from DHT sensor!");
+    return;
+  }
+
+  Blynk.virtualWrite(V0, t);
+  Blynk.virtualWrite(V1, h);
+  Serial.print("Temperature : ");
+  Serial.print(t);
+  Serial.print("    Humidity : ");
+  Serial.println(h);
+}
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println(F("DHTxx test!"));
+
+  dht.begin();
+
+  // Connect to WiFi
+  Serial.print("Connecting to Wifi SSID ");
+  Serial.print(ssid); // Print SSID directly
+  WiFi.begin(ssid, pass); // Use ssid and pass directly
+  secured_client.setCACert(TELEGRAM_CERTIFICATE_ROOT); // Add root certificate for api.telegram.org
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.print("\nWiFi connected. IP address: ");
+  Serial.println(WiFi.localIP());
+
+  // Initialize Blynk
+  Blynk.begin(auth, ssid, pass);
+  timer.setInterval(100L, sendSensor); // Corrected function call
+
+  // Set up IR pin
+  pinMode(IR_PIN, INPUT);
+
+  // Enable power for IR module
+  pinMode(IR_POWER_PIN, OUTPUT);
+  digitalWrite(IR_POWER_PIN, HIGH); // Enable power to the IR module
+
+  // Set up buzzer pin
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW); // Initially turn off the buzzer
+
+  // Set up ground pins
+  pinMode(GROUND_PIN, OUTPUT);
+  digitalWrite(GROUND_PIN, LOW); // Ensure ground pin is low
+
+  pinMode(EXTRA_GROUND_PIN, OUTPUT); // Set D21 pin as ground
+  digitalWrite(EXTRA_GROUND_PIN, LOW); // Ensure D21 pin is low
+}
+
+void loop() {
+  Blynk.run();
+  timer.run();
+
+  humidity = dht.readHumidity();
+  temperatureC = dht.readTemperature();
+  temperatureF = dht.readTemperature(true);
+  
+  if (millis() - bot_lasttime > BOT_MTBS) {
+    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    while (numNewMessages) {
+      Serial.println("got response");
+      handleNewMessages(numNewMessages);
+      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    }
+    bot_lasttime = millis();
+  }
+
+  int irValue = digitalRead(IR_PIN);
+  Serial.println(irValue); // Print the IR sensor value to serial monitor
+
+  if (irValue == HIGH) {
+    // Fire detected, raise alarm
+    digitalWrite(BUZZER_PIN, LOW); // Turn on the buzzer
+  } else {
+    // No fire detected, turn off the buzzer
+    digitalWrite(BUZZER_PIN, HIGH);
+  }
+
+  delay(100); // Add a small delay to avoid excessive readings
+}
+
+void handleNewMessages(int numNewMessages) {
+  Serial.print("handleNewMessages ");
+  Serial.println(numNewMessages);
+  for (int i = 0; i < numNewMessages; i++) {
+    String chat_id = String(bot.messages[i].chat_id);
+    if (chat_id != CHAT_ID ) {
+      bot.sendMessage(chat_id, "Unauthorized user", "");
+    } else {
+      String text = bot.messages[i].text;
+      String from_name = bot.messages[i].from_name;
+      if (from_name == "")
+        from_name = "Guest";
+      if (text == "/TC") {   
+        String msg = "Temperature is ";
+        msg += temperatureC;
+        msg += "C";
+        bot.sendMessage(chat_id,msg, ""); 
+      }
+      if (text == "/TF") {  
+        String msg = "Temperature is ";
+        msg += temperatureF;
+        msg += "F";
+        bot.sendMessage(chat_id,msg, ""); 
+      }
+      if (text == "/H") {  
+        String msg = "Humidity is ";
+        msg += humidity;
+        msg += "%"; 
+        bot.sendMessage(chat_id,msg, ""); 
+      }
+      if (text == "/start") {
+        String welcome = "CLIMATE INDICATION\n";
+        welcome += "/TC : Temperature in celcius \n";
+        welcome += "/TF : Temperature in faranthit\n";
+        welcome += "/H  : Humidity\n";
+        bot.sendMessage(chat_id, welcome, "Markdown");
+      }
+    }
+  }
+}
