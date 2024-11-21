@@ -1,0 +1,6 @@
+WiFi.h (for ESP32 Wi-Fi connectivity)
+WiFiClientSecure.h (for secure communication with Telegram)
+UniversalTelegramBot.h (for Telegram bot communication)
+BlynkSimpleEsp32.h (for Blynk platform integration)
+DHT.h (for DHT11 sensor functionality)
+These libraries provide the necessary functionality for WiFi, Telegram bot interaction, Blynk, and reading temperature and humidity from the DHT11 sensor.
